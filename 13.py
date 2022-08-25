@@ -3,8 +3,6 @@
 
 # In[104]:
 
-
-#matplotlib inline
 import matplotlib
 import tensorflow as tf
 import tensorflow.keras
@@ -20,23 +18,17 @@ from tensorflow.keras.models import *
 import os
 
 import matplotlib.pyplot
-#import keras
 
 from skimage.color import rgb2gray
 from skimage import color
 
 from tensorflow.keras.utils import plot_model
-#from tensorflow.keras.utils.vis_utils import plot_model
 
 import os as os
 import tensorflow as tf
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-#matplotlib inline
-
-#import keras
-#import keras.preprocessing.image
 
 from random import random
 from numpy import load
@@ -56,9 +48,6 @@ from matplotlib import pyplot
 
 from tensorflow.keras import Input
 
-#from keras-contrib.layers import CRF
-#from keras-contrib.layers.normalization.instancenormalization import InstanceNormalization
-
 from random import random
 from numpy import load
 from numpy import zeros
@@ -76,10 +65,19 @@ import tensorflow.keras.preprocessing.image
 from tensorflow.keras.preprocessing.image import img_to_array
 from tensorflow.keras.preprocessing.image import load_img
 
-#from tensorflow.keras.utils.vis_utils import plot_model
 
 
-# In[94]:
+
+
+
+
+# Chargement des images pour création d'un dataset à partir d'un dossier 
+# qui contient les images (dans 2 dossiers tests et train eux-mêmes composés de 2 dossiers trainA et trainB puis testA et testB
+# Puis prétraitement des images en les mettant au bon format et en les normalisant 
+
+path_train = 'mettre le chamin qui emmène dans le dossier train et qui initie l ouverture des deux sous dossiers en écrivant just train : ex :/home.local/chaumeron/essai_cycle_GAN/Image/separate3/train/train '
+path_test = 'mettre le chamin qui emmène dans le dossier train et qui initie l ouverture des deux sous dossiers en écrivant just train : ex :/home.local/chaumeron/essai_cycle_GAN/Image/separate3/train/tests '
+path_save = 'chemin du dossier dans lequel on souhaire enregistrer les résultats au fur et à mesure et les courbes du loss'
 
 def preprocess(records):
     images =  records['image']
@@ -126,21 +124,24 @@ def tf_data_aff(path):
     a,b = tf_pipeline_aff(trainingA),tf_pipeline_aff(trainingB)
     return a.__iter__(),b.__iter__()
 
-trainA,trainB = tf_data('/home.local/chaumeron/essai_cycle_GAN/Image/separate3/train/train')
+trainA,trainB = tf_data(path)
 
 
-# In[95]:
 
+
+
+# Valeurs des paramètres à modifier et paramètres d'entrée en généal
 
 input_dim = (128,128,3)      # input/output image dimension
 depth = 5                    # network depth  
 kernel = 3                   # kernel size for Conv2D
 n_batch = 16                 # batch_size
 epochs = 150
-resnet = 8
-steps = round(400/n_batch) #steps per epoch, we have ~1500 samples per domain so calculating steps using it
+resnet = 8		     # Nombre de blocs résiduels dans le cas d'un générateur avec des blocs résiduels
+steps = round(400/n_batch)   #steps per epoch, we have ~1500 samples per domain so calculating steps using it
 
 
+# Construction des discriminateurs
 
 def define_discriminator(image_shape):
 	# weight initialization : distribution aléatoire
@@ -179,7 +180,13 @@ DiscA=define_discriminator(image_shape)
 DiscB=define_discriminator(image_shape)
 DiscA.summary()
 
-#plot_model(DiscA, #to_file = "model_plot.png",show_shapes = True, show_layer_names = True)
+# Affichage des couches qui nécessite le package graphivz 
+#plot_model(DiscA, #to_file = "model_plot.png",show_shapes = True, show_layer_names = True) 
+
+
+# Construction des générateurs 
+
+## Cas 1 : s'il est composé de blocs résiduels
 
 def resnet_block(n_filters, input_layer):
 	# weight initialization
@@ -194,6 +201,9 @@ def resnet_block(n_filters, input_layer):
 	# concatenate merge channel-wise with input layer
 	g = Concatenate()([g, input_layer])
 	return g
+
+
+## Cas 2 : s'il s'agit d'un U-net
 
 def conv_block(input_img, num_filters):
     x = Conv2D(num_filters, 3, padding="same")(input_img)
@@ -238,7 +248,7 @@ def build_unet(image_shape):
     return model 
 
 
-# define the generator model
+# Cas 3 : s'il sagit de couches simples successives 
 
 def define_generator(image_shape, n_resnet):
 	# weight initialization
@@ -276,13 +286,16 @@ def define_generator(image_shape, n_resnet):
 	model = Model(in_image, out_image)
 	return model
 
+
+# Défiinit les 2 générateurs qui seront utilisés : ici le cas n°3
 genA=define_generator(image_shape, resnet)
 genB=define_generator(image_shape, resnet)
 genA.summary()
 
 #plot_model (genA, to_file = "model_genA.png",show_shapes = True, show_layer_names = True)
 
-#define a composite model
+
+# Construction du modèle combiné (demi-GAN)
 
 def define_composite_model(g_model_1, d_model, g_model_2, image_shape):
 	# ensure the model we're updating is trainable
@@ -329,8 +342,8 @@ def generate_fake(dataset,g,batch_size, patch_size):
     labels = np.zeros((batch_size,patch_size,patch_size,1))
     return predicted,labels
 
-# In[102]:
 
+# Enregistre les checkpoints et les écrase au fur et à mesure pour enregistrer ceeux des trois derniers steps
 
 checkpoint_dir = './cyclegan'
 
@@ -339,6 +352,10 @@ checkpoint = tf.train.Checkpoint(genB=genB, genA=genA,DiscA=DiscA,DiscB=DiscB,co
 manager = tf.train.CheckpointManager(checkpoint, 'training_checkpoints13', max_to_keep=3)
 checkpoint.restore(manager.latest_checkpoint)
 
+
+
+
+# Entrainement
 
 def train(discriminator_A, discriminator_B, generator_A_B, generator_B_A, composite_A_B, composite_B_A, epochs, batch_size, steps,n_patch):
     
@@ -380,9 +397,11 @@ def train(discriminator_A, discriminator_B, generator_A_B, generator_B_A, compos
             manager.save()
 
             i=i+1
-            
+        
+# Enregistrement tous les 10 epochs des images générées (à patir du dossier test)
+	
         if epoch%10==0:
-            testA,testB = tf_data('/home.local/chaumeron/essai_cycle_GAN/Image/separate3/test/test')
+            testA,testB = tf_data('path_test')
             x_real_A, _ = generate_real(next(testA),n_batch,0)
             images_B,_ = generate_fake(x_real_A, genB,n_batch,0)
             images_C, _ = generate_fake(images_B, genA,n_batch,0)
@@ -395,14 +414,16 @@ def train(discriminator_A, discriminator_B, generator_A_B, generator_B_A, compos
                 ax[index].imshow((concat_numpy* 255).astype(np.uint8))
                 plt.imshow((concat_numpy * 255).astype(np.uint8))
                 filename1 = 'generated_plot_epochs'+str(epoch+80)+'_aff_%03d.png' % (index+1)
-                plt.savefig('/home.local/chaumeron/essai_cycle_GAN/tests/better/results/resnet/13/' + filename1)
+                plt.savefig('path_save' + filename1)
                 plt.close()
             fig.tight_layout()
             
         else : 
             pass
             
-
+	
+# Affichage des courbes de losss (2/4) : 	
+	
     plt.plot(x,y,b)
     filename2 = 'loss_GAB+disc_A_real_loss_250'
     plt.savefig('/home.local/chaumeron/essai_cycle_GAN/tests/better/results/resnet/13/' + filename2)
@@ -417,9 +438,9 @@ def train(discriminator_A, discriminator_B, generator_A_B, generator_B_A, compos
 train(DiscA, DiscB, genB, genA, comb_modelB, comb_modelA, epochs, n_batch, steps, DiscA.output_shape[1])    
 
 
-# In[48]:
+# test final sur les images du dossier test à partir du dernier checkpoint (affichage image et loss)
 
-testA,testB = tf_data_aff('/home.local/chaumeron/essai_cycle_GAN/Image/separate3/test/test')
+testA,testB = tf_data_aff('path_test')
 
 x_real_A, _ = generate_real(next(testA),n_batch,0)
 images_B,_ = generate_fake(x_real_A, genB,n_batch,0)
@@ -433,7 +454,7 @@ for index,img in enumerate(zip(x_real_A,images_B, images_C)):
     ax[index].imshow((concat_numpy* 255).astype(np.uint8))
     plt.imshow((concat_numpy * 255).astype(np.uint8))
     filename1 = 'generated_plot_epochs250_aff%03d.png' % (index+1)
-    plt.savefig('/home.local/chaumeron/essai_cycle_GAN/tests/better/results/resnet/13/' + filename1)
+    plt.savefig('path_save' + filename1)
     plt.close()
 fig.tight_layout()
 
